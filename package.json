@@ -1,0 +1,14 @@
+{
+  "devDependencies": {
+    "serverless-lift": "^1.20.2",
+    "serverless-plugin-ifelse": "^1.0.7"
+  },
+  "scripts": {
+    "install-python": "pip install -r requirements.txt",
+    "install-dev": "pip install -r requirements-dev.txt",
+    "test": "python -m pytest -s test"
+  },
+  "dependencies": {
+    "serverless-python-requirements": "^5.4.0"
+  }
+}

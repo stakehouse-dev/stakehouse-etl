@@ -1,0 +1,524 @@
+service: etl
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: eu-central-1
+  environment:
+    QUEUE_URL: ${construct:dataQueue.queueUrl}
+    VALIDATOR_APR_QUEUE_URL: ${construct:financialMetricsQueue.queueUrl}
+    VALIDATOR_INDEX_QUEUE_URL: ${construct:indexesQueue.queueUrl}
+    VALIDATOR_EPOCH_INCOME_QUEUE_URL: ${construct:validatorIncomeQueue.queueUrl}
+    INDEX_EPOCH_INCOME_QUEUE_URL: ${construct:indexIncomeQueue.queueUrl}
+    INDEX_VALIDATOR_START_QUEUE_URL: ${construct:indexStartQueue.queueUrl}
+    VALIDATOR_HIGHEST_EARNINGS_QUEUE_URL: ${construct:validatorEarningsLastQueue.queueUrl}
+    VALIDATOR_BLS_KEY_INDEXES_QUEUE_URL: ${construct:validatorBLSKeyIndexesQueue.queueUrl}
+    STAKEHOUSE_GRAPH_URL: ${file(./environment/config.${opt:stage, 'dev'}.json):STAKEHOUSE_GRAPH_URL}
+    STAKEHOUSE_LIQUID_INDEX_GRAPH_URL: ${file(./environment/config.${opt:stage, 'dev'}.json):STAKEHOUSE_LIQUID_INDEX_GRAPH_URL}
+    STAKEHOUSE_GRAPH_INDEX_V2_URL: ${file(./environment/config.${opt:stage, 'dev'}.json):STAKEHOUSE_GRAPH_INDEX_V2_URL}
+    SUPPORT_V1_INDEX: ${file(./environment/config.${opt:stage, 'dev'}.json):SUPPORT_V1_INDEX}
+    SQL_ENDPOINT: ${file(./environment/config.${opt:stage, 'dev'}.json):SQL_ENDPOINT}
+    DB_USER: ${file(./environment/config.${opt:stage, 'dev'}.json):DB_USER}
+    DB_PASS: ${file(./environment/config.${opt:stage, 'dev'}.json):DB_PASS}
+    EXTRACT_DATABASE_NAME: ${file(./environment/config.${opt:stage, 'dev'}.json):EXTRACT_DATABASE_NAME}
+    DAY_DATABASE_NAME: ${file(./environment/config.${opt:stage, 'dev'}.json):DAY_DATABASE_NAME}
+    CONSENSUS_HOST: ${file(./environment/config.${opt:stage, 'dev'}.json):CONSENSUS_HOST}
+    ARCHIVE_API_KEY: ${file(./environment/config.${opt:stage, 'dev'}.json):ARCHIVE_API_KEY}
+    MERGE_EXECUTION_BLOCK: ${file(./environment/config.${opt:stage, 'dev'}.json):MERGE_EXECUTION_BLOCK}
+    BEACONCHAIN_SLOT_BLOCK_NUMBER: ${file(./environment/config.${opt:stage, 'dev'}.json):BEACONCHAIN_SLOT_BLOCK_NUMBER}
+    SHANGHAI_EPOCH: ${file(./environment/config.${opt:stage, 'dev'}.json):SHANGHAI_EPOCH}
+    SEPOLIA_URL: ${file(./environment/config.${opt:stage, 'dev'}.json):SEPOLIA_URL}
+    MIN_SEPOLIA_EPOCH: ${file(./environment/config.${opt:stage, 'dev'}.json):MIN_SEPOLIA_EPOCH}
+
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    dockerImage: public.ecr.aws/sam/build-python3.9:latest
+
+constructs:
+  indexIncomeQueue: 
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.index_epoch_apr_handler.data_handler
+      timeout: 300
+
+  validatorIncomeQueue: 
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.validator_income_handler.data_handler
+      timeout: 300
+  dataQueue: 
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.extract_handler.data_handler
+      timeout: 25
+
+  financialMetricsQueue:
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.apr_sync_handler.data_handler
+      timeout: 10
+  
+  indexesQueue:
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.index_validator_handler.data_handler
+      timeout: 25
+ 
+  indexStartQueue:
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.validator_start_handler.data_handler
+      timeout: 25
+  
+  validatorEarningsLastQueue:
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.validator_earnings_handler.data_handler
+      timeout: 100
+  
+  validatorBLSKeyIndexesQueue:
+    type: queue
+    maxRetries: 5
+    batchSize: 10
+    maxBatchingWindow: 10
+    worker:
+      handler: src.validator_bls_key_index.data_handler
+      timeout: 25
+
+functions:
+
+  validatorIncomeQueueHandler:
+    handler: src.validator_income_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(6 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexIncomeQueueHandler:
+    handler: src.index_epoch_apr_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(30 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexesQueueHandler:
+    handler: src.index_validator_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(30 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  financialMetricsQueueHandler:
+    handler: src.apr_sync_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: cron(0 0 * * ? *)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  queueHandler:
+    handler: src.extract_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(6 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  validatorEarningsLastQueueHandler:
+    handler: src.validator_earnings_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(30 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  indexStartQueueHandler:
+    handler: src.validator_start_handler.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(10 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  validatorBLSKeyIndexesQueueHandler:
+    handler: src.validator_bls_key_index.queue_handler
+    timeout: 300
+    events:
+      - schedule: rate(6 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  validatorWithdrawalHandler:
+    handler: src.validator_withdrawals_handler.data_handler
+    timeout: 300
+    events:
+      - schedule: rate(6 minutes)
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  leaderboardAPR:
+    handler: src.api_handler.handle_request_leaderboard
+    timeout: 30
+    events:
+      - http:
+          path: /leaderboard
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  leaderboardTopIndexes:
+    handler: src.api_handler.handle_request_topIndexes
+    timeout: 30
+    events:
+      - http:
+          path: /topIndexes
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexAPRAverage:
+    handler: src.api_handler.handle_request_indexAPRAverage
+    timeout: 30
+    events:
+      - http:
+          path: /indexAPRAverage
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  validatorEpochWiseApr:
+    handler: src.api_handler.handle_request_validatorEpochWiseApr
+    timeout: 30
+    events:
+      - http:
+          path: /validatorEpochWiseApr
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  averageIndexAPR:
+    handler: src.api_handler.handle_request_averageIndexAPR
+    timeout: 30
+    events:
+      - http:
+          path: /averageIndexAPR
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexdETHEarned:
+    handler: src.api_handler.handle_request_indexdETHEarned
+    timeout: 30
+    events:
+      - http:
+          path: /indexdETHEarned
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexValidators:
+    handler: src.api_handler.handle_request_indexValidators
+    timeout: 30
+    events:
+      - http:
+          path: /indexValidators
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  savETHIndexNames:
+    handler: src.api_handler.handle_request_savETHIndexNames
+    timeout: 30
+    events:
+      - http:
+          path: /savETHIndexNames
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  mevWatchInfo:
+    handler: src.api_handler.handle_request_mevWatchInfo
+    timeout: 30
+    events:
+      - http:
+          path: /mevWatchInfo
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  validatorLSDScore:
+    handler: src.api_handler.handle_request_validatorLSDScore
+    timeout: 30
+    events:
+      - http:
+          path: /validatorLSDScore
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexRedemptionRate:
+    handler: src.api_handler.handle_request_indexRedemptionRate
+    timeout: 30
+    events:
+      - http:
+          path: /indexRedemptionRate
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexLeaderboard:
+    handler: src.api_handler.handle_request_indexLeaderboard
+    timeout: 30
+    events:
+      - http:
+          path: /indexLeaderboard
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  indexValidatorsOpenIndex:
+    handler: src.api_handler.handle_request_indexValidators_open_index
+    timeout: 30
+    events:
+      - http:
+          path: /indexValidators_Open_Index
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  userIncomeProtectedStaking:
+    handler: src.api_handler.handle_request_userIncome
+    timeout: 30
+    events:
+      - http:
+          path: /userIncome/protected_batch
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  userIncomeMEVFees:
+    handler: src.api_handler.handle_request_userIncomeMEV
+    timeout: 30
+    events:
+      - http:
+          path: /userIncome/mev_fees
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  userIncomeNodeRunner:
+    handler: src.api_handler.handle_request_userIncomeNodeRunner
+    timeout: 30
+    events:
+      - http:
+          path: /userIncome/runner
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  validatorSlotWithdrawals:
+    handler: src.api_handler.handle_request_validatorSlotWithdrawals
+    timeout: 30
+    events:
+      - http:
+          path: /validatorSlotWithdrawals
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  validatorSlotWithdrawalsLowerSlot:
+    handler: src.api_handler.handle_request_validatorWithdrawalsLowerSlot
+    timeout: 30
+    events:
+      - http:
+          path: /validatorWithdrawalsLowerSlot
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  
+  validatorSlotWithdrawalsLowerSlotUpperSlot:
+    handler: src.api_handler.handle_request_validatorWithdrawalsLowerUpperSlot
+    timeout: 30
+    events:
+      - http:
+          path: /validatorSlotWithdrawalsLowerSlotUpperSlot
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7 
+
+  ponBlsKey:
+    handler: src.api_handler.handle_request_ponBlsKey
+    timeout: 30
+    events:
+      - http:
+          path: /ponBlsKey
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+  lsdWisePerformance:
+    handler: src.api_handler.handle_request_lsdWiseAPR
+    timeout: 30
+    events:
+      - http:
+          path: /lsdWisePerformance
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+  validatorAprEpochs:
+    handler: src.api_handler.handle_request_validatorAprEpochs
+    timeout: 30
+    events:
+      - http:
+          path: /validatorAprEpochs
+          method: GET
+          cors: true
+    vpc:
+      securityGroupIds:
+        - sg-ebdf849f
+      subnetIds:
+        - subnet-0070f2ed34a5f74a7
+
+plugins:
+  - serverless-lift
+  - serverless-python-requirements
+
