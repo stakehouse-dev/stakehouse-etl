@@ -419,7 +419,20 @@ def handle_request_indexValidators(event, context):
     validators= subgraph.validator_in_index(index)
     bls_keys= validator_indexes(index)
     if len(bls_keys) == 0:
-        return form_response('No Validators', 401)
+        print(f'No start validator index info for {index}')
+        print('Checking if validators were part of LSD index')
+        print(validators)
+        validators_to_lsd_index= subgraph.validator_lsd(validators)
+
+        for (validator) in validators:
+            validator_index= validators_to_lsd_index[validator]
+            bls_keys_returned= validator_indexes(validator_index)
+            for (bls_pub_key) in bls_keys_returned:
+                if validator == bls_pub_key:
+                    bls_keys += [validator]
+
+        if len(bls_keys) == 0:
+            return form_response('No Validators', 401)
 
     bls_key_threat_monitoring= threat_monitoring(tuple(bls_keys))
 
